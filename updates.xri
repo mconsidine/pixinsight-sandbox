@@ -6,9 +6,9 @@
     </p>
    </description>
    <platform os="all" arch="noarch" version="1.8.8:1.9.9">
-      <package fileName="Sandbox.zip" sha1="735a15c84ccf6680fddce2bf3ca793e487937200" type="script" releaseDate="20240424">
+      <package fileName="NBtoRGBStars_v1.2.2.js.zip" sha1="50954419b6032a1b205706093e18464023f1363b" type="script" releaseDate="20240426">
          <title>
-        NB to RGB Stars Script
+        NB to RGB Stars Script v1.2.2 Update
       </title>
          <description>
             <p>
