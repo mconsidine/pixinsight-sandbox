@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import tifffile as tiff
 from PIL import Image
 from astropy.io import fits
@@ -9,6 +10,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtWidgets import QInputDialog
 
 
 # SetiAstro Copyright Notice
@@ -19,7 +21,7 @@ def display_setiastro_copyright():
  *#      _\ \/ -_) _ _   / __ |(_-</ __/ __/ _ \                     #
  *#     /___/\__/_//_/  /_/ |_/___/\__/__/ \___/                     #
  *#                                                                  #
- *#              Statistical Stretch - V1.0                          #
+ *#              Statistical Stretch - V1.2                          #
  *#                                                                  #
  *#                         SetiAstro                                #
  *#                    Copyright © 2024                              #
@@ -66,17 +68,26 @@ def load_image(filename):
     return img_array
 
 
-def save_image(img_array, filename, original_format):
+def save_image(img_array, filename, original_format, bit_depth=None):
     if original_format == 'png':
         # Convert back to 8-bit and save as PNG
         img = Image.fromarray((img_array * 255).astype(np.uint8))
         img.save(filename)
     elif original_format in ['tiff', 'tif']:
-        # Save TIFF using tifffile
-        tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
+        if bit_depth == "16-bit":
+            tiff.imwrite(filename, (img_array * 65535).astype(np.uint16))  # Save as 16-bit TIFF
+        elif bit_depth == "32-bit unsigned":
+            tiff.imwrite(filename, (img_array * 4294967295).astype(np.uint32))  # Save as 32-bit unsigned TIFF
+        elif bit_depth == "32-bit floating point":
+            tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
     elif original_format in ['fits', 'fit']:  # Handle both .fits and .fit
-        # Save FITS using astropy
-        hdu = fits.PrimaryHDU(img_array.astype(np.float32))
+        if bit_depth == "16-bit":
+            hdu = fits.PrimaryHDU((img_array * 65535).astype(np.uint16))
+        elif bit_depth == "32-bit unsigned":
+            hdu = fits.PrimaryHDU((img_array * 4294967295).astype(np.uint32))
+        elif bit_depth == "32-bit floating point":
+            hdu = fits.PrimaryHDU(img_array.astype(np.float32))
+        
         hdu.writeto(filename, overwrite=True)
     else:
         raise ValueError("Unsupported file format!")
@@ -150,7 +161,7 @@ class ImageStretchApp(QWidget):
         self.zoom_factor = 1.0
 
     def initUI(self):
-        self.setWindowTitle('Statistical Stretch')
+        self.setWindowTitle('Statistical Stretch - V1.2')
         main_layout = QHBoxLayout()  # Main layout is horizontal to allow for left and right sections
 
         # Left column (fixed width layout)
@@ -349,8 +360,15 @@ class ImageStretchApp(QWidget):
 
             # Store the stretched image for zooming
             self.stretched_image = stretched_image
-            self.zoom_factor = 0.25
+            
+            # Only set zoom_factor to 0.25 on the first preview
+            if not hasattr(self, 'zoom_initialized') or not self.zoom_initialized:
+                self.zoom_factor = 0.25
+                self.zoom_initialized = True  # Mark that zoom has been initialized
+
+            # Update the preview with the current zoom level
             self.update_preview()
+
 
 
     def update_preview(self):
@@ -393,14 +411,40 @@ class ImageStretchApp(QWidget):
             else:  # Color image
                 stretched_image = stretch_color_image(self.image, target_median, linked, normalize, apply_curves, curves_boost)
 
-            # Open file save dialog
-            save_filename, _ = QFileDialog.getSaveFileName(self, 'Save Image As', '', 'Images (*.png *.tiff *.fits);;All Files (*)')
+            # Pre-populate the save dialog with the original image name
+            base_name = os.path.basename(self.filename)  # Extract the original image name
+            default_save_name = os.path.splitext(base_name)[0] + '_stretched.tif'  # Set the default extension to .tif
+
+            # Get the directory of the original image
+            original_dir = os.path.dirname(self.filename)
+
+            # Open file save dialog with default name and directory
+            save_filename, _ = QFileDialog.getSaveFileName(
+                self, 
+                'Save Image As', 
+                os.path.join(original_dir, default_save_name),  # Pre-populate the directory and name
+                'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
+            )
 
             # If the user selected a file, proceed with saving
             if save_filename:
                 original_format = save_filename.split('.')[-1].lower()
-                save_image(stretched_image, save_filename, original_format)
-                self.fileLabel.setText(f'Image saved as: {save_filename}')
+
+                # For TIFF and FITS files, prompt the user to select the bit depth
+                if original_format in ['tiff', 'tif', 'fits', 'fit']:
+                    bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
+                    bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
+                    
+                    if ok and bit_depth:
+                        # Pass the selected bit depth to the save function
+                        save_image(stretched_image, save_filename, original_format, bit_depth)
+                        self.fileLabel.setText(f'Image saved as: {save_filename}')
+                    else:
+                        self.fileLabel.setText('Save canceled.')
+                else:
+                    # If it's not TIFF or FITS, just save the image directly
+                    save_image(stretched_image, save_filename, original_format)
+                    self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
 
