@@ -21,7 +21,7 @@ def display_setiastro_copyright():
  *#      _\ \/ -_) _ _   / __ |(_-</ __/ __/ _ \                     #
  *#     /___/\__/_//_/  /_/ |_/___/\__/__/ \___/                     #
  *#                                                                  #
- *#              Statistical Stretch - V1.2                          #
+ *#              Statistical Stretch - V1.3                          #
  *#                                                                  #
  *#                         SetiAstro                                #
  *#                    Copyright © 2024                              #
@@ -33,6 +33,7 @@ display_setiastro_copyright()
 
 # Function to load and convert images to 32-bit floating point
 def load_image(filename):
+    original_header = None  # Initialize an empty header for FITS files
     if filename.lower().endswith('.png'):
         img = Image.open(filename).convert('RGB')  # Ensures it's RGB
         img_array = np.array(img, dtype=np.float32) / 255.0  # Normalize to [0, 1]
@@ -52,26 +53,24 @@ def load_image(filename):
     elif filename.lower().endswith('.fits') or filename.lower().endswith('.fit'):
         with fits.open(filename) as hdul:
             img_array = hdul[0].data
+            original_header = hdul[0].header  # Capture the FITS header
             # Handle 3D FITS data (e.g., RGB or multi-layered data)
             if img_array.ndim == 3 and img_array.shape[0] == 3:
-                # Assume RGB image, normalize each channel
                 img_array = np.transpose(img_array, (1, 2, 0))  # Reorder to (height, width, channels)
                 img_array = img_array.astype(np.float32) / 65535.0  # Normalize each channel to [0, 1]
             elif img_array.ndim == 2:
-                # Handle 2D image
                 img_array = img_array.astype(np.float32) / 65535.0  # Normalize to [0, 1]
             else:
                 raise ValueError("Unsupported FITS format!")
     else:
         raise ValueError("Unsupported file format!")
-    
-    return img_array
+
+    return img_array, original_header  # Return both the image array and the header
 
 
-def save_image(img_array, filename, original_format, bit_depth=None):
+def save_image(img_array, filename, original_format, bit_depth=None, original_header=None):
     if original_format == 'png':
-        # Convert back to 8-bit and save as PNG
-        img = Image.fromarray((img_array * 255).astype(np.uint8))
+        img = Image.fromarray((img_array * 255).astype(np.uint8))  # Convert to 8-bit and save as PNG
         img.save(filename)
     elif original_format in ['tiff', 'tif']:
         if bit_depth == "16-bit":
@@ -80,14 +79,13 @@ def save_image(img_array, filename, original_format, bit_depth=None):
             tiff.imwrite(filename, (img_array * 4294967295).astype(np.uint32))  # Save as 32-bit unsigned TIFF
         elif bit_depth == "32-bit floating point":
             tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
-    elif original_format in ['fits', 'fit']:  # Handle both .fits and .fit
+    elif original_format in ['fits', 'fit']:
         if bit_depth == "16-bit":
-            hdu = fits.PrimaryHDU((img_array * 65535).astype(np.uint16))
+            hdu = fits.PrimaryHDU((img_array * 65535).astype(np.uint16), header=original_header)
         elif bit_depth == "32-bit unsigned":
-            hdu = fits.PrimaryHDU((img_array * 4294967295).astype(np.uint32))
+            hdu = fits.PrimaryHDU((img_array * 4294967295).astype(np.uint32), header=original_header)
         elif bit_depth == "32-bit floating point":
-            hdu = fits.PrimaryHDU(img_array.astype(np.float32))
-        
+            hdu = fits.PrimaryHDU(img_array.astype(np.float32), header=original_header)
         hdu.writeto(filename, overwrite=True)
     else:
         raise ValueError("Unsupported file format!")
@@ -161,7 +159,7 @@ class ImageStretchApp(QWidget):
         self.zoom_factor = 1.0
 
     def initUI(self):
-        self.setWindowTitle('Statistical Stretch - V1.2')
+        self.setWindowTitle('Statistical Stretch - V1.3')
         main_layout = QHBoxLayout()  # Main layout is horizontal to allow for left and right sections
 
         # Left column (fixed width layout)
@@ -336,7 +334,8 @@ class ImageStretchApp(QWidget):
                                                     'Images (*.png *.tiff *.tif *.fits *.fit);;All Files (*)')
         if self.filename:
             self.fileLabel.setText(self.filename)
-            self.image = load_image(self.filename)
+            self.image, self.original_header = load_image(self.filename)  # Also load the header for FITS
+
 
     def updateMedianLabel(self, value):
         self.medianLabel.setText(f'Target Median: {value / 100:.2f}')
@@ -437,7 +436,7 @@ class ImageStretchApp(QWidget):
                     
                     if ok and bit_depth:
                         # Pass the selected bit depth to the save function
-                        save_image(stretched_image, save_filename, original_format, bit_depth)
+                        save_image(stretched_image, save_filename, original_format, bit_depth, self.original_header)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
