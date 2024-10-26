@@ -33,6 +33,8 @@ display_setiastro_copyright()
 
 # Function to load and convert images to 32-bit floating point
 def load_image(filename):
+    bit_depth = None  # Initialize bit depth to None
+    is_mono = True  # Assume monochrome by default    
     original_header = None  # Initialize an empty header for FITS files
     if filename.lower().endswith('.png'):
         img = Image.open(filename).convert('RGB')  # Ensures it's RGB
