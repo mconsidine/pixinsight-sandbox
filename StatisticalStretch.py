@@ -21,7 +21,7 @@ def display_setiastro_copyright():
  *#      _\ \/ -_) _ _   / __ |(_-</ __/ __/ _ \                     #
  *#     /___/\__/_//_/  /_/ |_/___/\__/__/ \___/                     #
  *#                                                                  #
- *#              Statistical Stretch - V1.3                          #
+ *#              Statistical Stretch - V1.4                          #
  *#                                                                  #
  *#                         SetiAstro                                #
  *#                    Copyright © 2024                              #
@@ -54,21 +54,43 @@ def load_image(filename):
         with fits.open(filename) as hdul:
             img_array = hdul[0].data
             original_header = hdul[0].header  # Capture the FITS header
+            bit_depth = None
+
+            # Determine bit depth and apply necessary transformations
+            if img_array.dtype == np.uint16:
+                bit_depth = "16-bit"
+                img_array = img_array.astype(np.float32) / 65535.0  # Normalize 16-bit to [0, 1]
+            elif img_array.dtype == np.uint32:
+                bit_depth = "32-bit unsigned"
+                bzero = original_header.get('BZERO', 0)
+                bscale = original_header.get('BSCALE', 1)
+                img_array = img_array.astype(np.float32) * bscale + bzero
+
+                # Normalize to [0, 1] based on range
+                image_min = img_array.min()
+                image_max = img_array.max()
+                img_array = (img_array - image_min) / (image_max - image_min)
+            elif img_array.dtype == np.float32:
+                bit_depth = "32-bit floating point"
+                # No normalization needed for 32-bit float
+
             # Handle 3D FITS data (e.g., RGB or multi-layered data)
             if img_array.ndim == 3 and img_array.shape[0] == 3:
                 img_array = np.transpose(img_array, (1, 2, 0))  # Reorder to (height, width, channels)
-                img_array = img_array.astype(np.float32) / 65535.0  # Normalize each channel to [0, 1]
+                is_mono = False
             elif img_array.ndim == 2:
-                img_array = img_array.astype(np.float32) / 65535.0  # Normalize to [0, 1]
+                img_array = np.stack([img_array] * 3, axis=-1)  # Convert grayscale to 3-channel for consistency
+                is_mono = True
             else:
                 raise ValueError("Unsupported FITS format!")
     else:
         raise ValueError("Unsupported file format!")
 
-    return img_array, original_header  # Return both the image array and the header
+    return img_array, original_header, bit_depth, is_mono  # Return the image array, header, bit depth, and is_mono flag
 
 
-def save_image(img_array, filename, original_format, bit_depth=None, original_header=None):
+
+def save_image(img_array, filename, original_format, bit_depth=None, original_header=None, is_mono=False):
     if original_format == 'png':
         img = Image.fromarray((img_array * 255).astype(np.uint8))  # Convert to 8-bit and save as PNG
         img.save(filename)
@@ -80,12 +102,36 @@ def save_image(img_array, filename, original_format, bit_depth=None, original_he
         elif bit_depth == "32-bit floating point":
             tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
     elif original_format in ['fits', 'fit']:
-        if bit_depth == "16-bit":
-            hdu = fits.PrimaryHDU((img_array * 65535).astype(np.uint16), header=original_header)
-        elif bit_depth == "32-bit unsigned":
-            hdu = fits.PrimaryHDU((img_array * 4294967295).astype(np.uint32), header=original_header)
-        elif bit_depth == "32-bit floating point":
-            hdu = fits.PrimaryHDU(img_array.astype(np.float32), header=original_header)
+        # Save as FITS file with header information
+        if is_mono:
+            # For grayscale, save only the first channel with header information
+            if bit_depth == "16-bit":
+                img_array_fits = (img_array[:, :, 0] * 65535).astype(np.uint16)
+            elif bit_depth == "32-bit unsigned":
+                img_array_fits = img_array[:, :, 0].astype(np.float32)
+            elif bit_depth == "32-bit floating point":
+                img_array_fits = img_array[:, :, 0].astype(np.float32)
+            hdu = fits.PrimaryHDU(img_array_fits, header=original_header)
+        else:
+            # Transpose RGB image back to (channels, height, width) for FITS saving
+            img_array_fits = np.transpose(img_array, (2, 0, 1))
+
+            if bit_depth == "16-bit":
+                img_array_fits = (img_array_fits * 65535).astype(np.uint16)
+            elif bit_depth == "32-bit unsigned":
+                img_array_fits = img_array_fits.astype(np.float32)
+                original_header['BITPIX'] = -32
+            elif bit_depth == "32-bit floating point":
+                img_array_fits = img_array_fits.astype(np.float32)
+
+            # Update the original header to reflect the correct dimensions
+            original_header['NAXIS'] = 3  # Number of axes
+            original_header['NAXIS1'] = img_array_fits.shape[2]  # Width
+            original_header['NAXIS2'] = img_array_fits.shape[1]  # Height
+            original_header['NAXIS3'] = img_array_fits.shape[0]  # Number of channels
+
+            hdu = fits.PrimaryHDU(img_array_fits, header=original_header)
+
         hdu.writeto(filename, overwrite=True)
     else:
         raise ValueError("Unsupported file format!")
@@ -159,7 +205,7 @@ class ImageStretchApp(QWidget):
         self.zoom_factor = 1.0
 
     def initUI(self):
-        self.setWindowTitle('Statistical Stretch - V1.3')
+        self.setWindowTitle('Statistical Stretch - V1.4')
         main_layout = QHBoxLayout()  # Main layout is horizontal to allow for left and right sections
 
         # Left column (fixed width layout)
@@ -334,7 +380,8 @@ class ImageStretchApp(QWidget):
                                                     'Images (*.png *.tiff *.tif *.fits *.fit);;All Files (*)')
         if self.filename:
             self.fileLabel.setText(self.filename)
-            self.image, self.original_header = load_image(self.filename)  # Also load the header for FITS
+            self.image, self.original_header, self.bit_depth, self.is_mono = load_image(self.filename)  # Unpack all four values
+
 
 
     def updateMedianLabel(self, value):
@@ -436,7 +483,7 @@ class ImageStretchApp(QWidget):
                     
                     if ok and bit_depth:
                         # Pass the selected bit depth to the save function
-                        save_image(stretched_image, save_filename, original_format, bit_depth, self.original_header)
+                        save_image(stretched_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
