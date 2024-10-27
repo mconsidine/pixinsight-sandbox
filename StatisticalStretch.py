@@ -21,7 +21,7 @@ def display_setiastro_copyright():
  *#      _\ \/ -_) _ _   / __ |(_-</ __/ __/ _ \                     #
  *#     /___/\__/_//_/  /_/ |_/___/\__/__/ \___/                     #
  *#                                                                  #
- *#              Statistical Stretch - V1.4                          #
+ *#              Statistical Stretch - V1.4.1                        #
  *#                                                                  #
  *#                         SetiAstro                                #
  *#                    Copyright © 2024                              #
@@ -92,6 +92,12 @@ def load_image(filename):
 
 
 
+def ensure_native_byte_order(array):
+    # Check if the byte order of the array differs from the system's native byte order
+    if array.dtype.byteorder not in ('=', '|'):  # '=' means native byte order, '|' means not applicable
+        array = array.byteswap().newbyteorder()  # Swap byte order to native
+    return array
+
 def save_image(img_array, filename, original_format, bit_depth=None, original_header=None, is_mono=False):
     if original_format == 'png':
         img = Image.fromarray((img_array * 255).astype(np.uint8))  # Convert to 8-bit and save as PNG
@@ -104,7 +110,9 @@ def save_image(img_array, filename, original_format, bit_depth=None, original_he
         elif bit_depth == "32-bit floating point":
             tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
     elif original_format in ['fits', 'fit']:
-        # Save as FITS file with header information
+        # Apply native byte order correction for FITS
+        img_array = ensure_native_byte_order(img_array)
+
         if is_mono:
             # For grayscale, save only the first channel with header information
             if bit_depth == "16-bit":
@@ -207,7 +215,7 @@ class ImageStretchApp(QWidget):
         self.zoom_factor = 1.0
 
     def initUI(self):
-        self.setWindowTitle('Statistical Stretch - V1.4')
+        self.setWindowTitle('Statistical Stretch - V1.4.1')
         main_layout = QHBoxLayout()  # Main layout is horizontal to allow for left and right sections
 
         # Left column (fixed width layout)
