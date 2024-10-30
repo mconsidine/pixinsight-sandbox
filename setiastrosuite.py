@@ -36,7 +36,7 @@ class AstroEditingSuite(QWidget):
 
         # Set the layout for the main window
         self.setLayout(layout)
-        self.setWindowTitle('Seti Astro''s Editing Suite')
+        self.setWindowTitle('Seti Astro\'s Editing Suite V1.0')
 
 
 class StatisticalStretchTab(QWidget):
@@ -277,39 +277,40 @@ class StatisticalStretchTab(QWidget):
 
     def saveImage(self):
         if self.image is not None:
-            target_median = self.medianSlider.value() / 100.0
-            linked = self.linkedCheckBox.isChecked()
-            normalize = self.normalizeCheckBox.isChecked()
-            apply_curves = self.curvesCheckBox.isChecked()
-            curves_boost = self.curvesBoostSlider.value() / 100.0
-
-            if self.image.ndim == 2:
-                stretched_image = stretch_mono_image(self.image, target_median, normalize, apply_curves, curves_boost)
-            else:
-                stretched_image = stretch_color_image(self.image, target_median, linked, normalize, apply_curves, curves_boost)
-
+            # Pre-populate the save dialog with the original image name
             base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_stretched.tif'
             original_dir = os.path.dirname(self.filename)
 
-            save_filename, _ = QFileDialog.getSaveFileName(self, 'Save Image As', os.path.join(original_dir, default_save_name), 'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)')
+            # Open the save file dialog
+            save_filename, _ = QFileDialog.getSaveFileName(
+                self, 
+                'Save Image As', 
+                os.path.join(original_dir, default_save_name), 
+                'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
+            )
 
             if save_filename:
                 original_format = save_filename.split('.')[-1].lower()
+
+                # For TIFF and FITS files, prompt the user to select the bit depth
                 if original_format in ['tiff', 'tif', 'fits', 'fit']:
                     bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
                     bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
-
+                    
                     if ok and bit_depth:
-                        save_image(stretched_image, save_filename, original_format, bit_depth, self.original_header)
+                        # Call save_image with the necessary parameters
+                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
-                    save_image(stretched_image, save_filename, original_format)
+                    # For non-TIFF/FITS formats, save directly without bit depth selection
+                    save_image(self.image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
+
 
 # Thread for Stat Stretch background processing
 class StatisticalStretchProcessingThread(QThread):
@@ -392,7 +393,9 @@ class StarStretchTab(QWidget):
         self.image = None  # Store the selected image
         self.stretch_factor = 5.0
         self.sat_amount = 1.0
+        self.is_mono = True
         self.remove_green = False
+        self.filename = None  # Store the selected file path
         self.preview_image = None  # Store the preview result
         self.zoom_factor = 0.25  # Initialize zoom factor for preview scaling
         self.dragging = False
@@ -513,41 +516,48 @@ class StarStretchTab(QWidget):
         self.setLayout(main_layout)
 
     def saveImage(self):
-        if self.image is not None and self.image.size > 0:
-            base_name = os.path.basename(self.fileLabel.text())  
+        if self.image is not None:
+            # Pre-populate the save dialog with the original image name
+            base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_stretched.tif'
+            original_dir = os.path.dirname(self.filename)
 
-            original_dir = os.path.dirname(self.fileLabel.text())
+            # Open the save file dialog
             save_filename, _ = QFileDialog.getSaveFileName(
                 self, 
-                'Save Stretched Image As', 
+                'Save Image As', 
                 os.path.join(original_dir, default_save_name), 
-                'Images (*.png *.tif *.fits *.fit);;All Files (*)'
+                'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
             )
 
             if save_filename:
                 original_format = save_filename.split('.')[-1].lower()
 
+                # For TIFF and FITS files, prompt the user to select the bit depth
                 if original_format in ['tiff', 'tif', 'fits', 'fit']:
                     bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
                     bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
-
+                    
                     if ok and bit_depth:
-                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header)
+                        # Call save_image with the necessary parameters
+                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
+                    # For non-TIFF/FITS formats, save directly without bit depth selection
                     save_image(self.image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
 
+
     def selectImage(self):
         selected_file, _ = QFileDialog.getOpenFileName(self, "Select Stars Only Image", "", "Images (*.png *.tif *.fits *.fit)")
         if selected_file:
             try:
-                self.image, self.original_header, _, _ = load_image(selected_file)  # Load image with header
+                self.image, self.original_header, _, self.is_mono = load_image(selected_file)  # Load image with header
+                self.filename = selected_file  # Store the selected file path
                 self.fileLabel.setText(os.path.basename(selected_file))
                 self.generatePreview()
 
@@ -635,6 +645,8 @@ class NBtoRGBstarsTab(QWidget):
         self.sii_image = None
         self.osc_image = None
         self.combined_image = None
+        self.is_mono = False
+        self.filename = None  # Store the selected file path
         self.zoom_factor = 0.25
         self.dragging = False
         self.last_pos = QPoint()
@@ -779,6 +791,7 @@ class NBtoRGBstarsTab(QWidget):
             try:
                 if image_type == 'Ha':
                     self.ha_image, self.original_header, _, _ = load_image(selected_file)  # Store header
+                    self.filename = selected_file
                     self.haLabel.setText(f"{os.path.basename(selected_file)} selected")
                 elif image_type == 'OIII':
                     self.oiii_image, self.original_header, _, _ = load_image(selected_file)
@@ -836,26 +849,43 @@ class NBtoRGBstarsTab(QWidget):
 
     def saveImage(self):
         if self.combined_image is not None:
-            base_name = 'NBtoRGB_combined.tif'
-            save_filename, _ = QFileDialog.getSaveFileName(self, 'Save Image As', base_name, 'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)')
+            # Pre-populate the save dialog with the original image name
+            base_name = os.path.basename(self.filename) if self.filename else "output"
+            default_save_name = 'NBtoRGBstars.tif'
+            original_dir = os.path.dirname(self.filename) if self.filename else ""
+
+            # Open the save file dialog
+            save_filename, _ = QFileDialog.getSaveFileName(
+                self, 
+                'Save Image As', 
+                os.path.join(original_dir, default_save_name), 
+                'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
+            )
 
             if save_filename:
                 original_format = save_filename.split('.')[-1].lower()
 
+                # For TIFF and FITS files, prompt the user to select the bit depth
                 if original_format in ['tiff', 'tif', 'fits', 'fit']:
                     bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
                     bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
-
+                    
                     if ok and bit_depth:
-                        save_image(self.combined_image, save_filename, original_format, bit_depth, self.original_header)
+                        # Call save_image with the necessary parameters
+                        save_image(self.combined_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
+                    # For non-TIFF/FITS formats, save directly without bit depth selection
                     save_image(self.combined_image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
+        else:
+            self.fileLabel.setText("No combined image to save.")
+
+
 
 
     # Add event filter for mouse dragging in preview area
@@ -887,25 +917,44 @@ class NBtoRGBProcessingThread(QThread):
         self.stretch_factor = stretch_factor
 
     def run(self):
+        # Check if an OSC image is provided and handle as RGB channels
         if self.osc_image is not None:
             r_channel = self.osc_image[..., 0]
             g_channel = self.osc_image[..., 1]
             b_channel = self.osc_image[..., 2]
-            r_combined = 0.5 * r_channel + 0.5 * (self.sii_image if self.sii_image is not None else r_channel)
+            
+            # Handle cases where narrowband images are missing
+            # If Ha is None, use the red channel of the OSC image for g_combined
+            if self.ha_image is None:
+                self.ha_image = r_channel
+            # If OIII is None, use the green channel of the OSC image for b_combined
+            if self.oiii_image is None:
+                self.oiii_image = g_channel
+            # If SII is None, use the red channel of the OSC image for r_combined
+            if self.sii_image is None:
+                self.sii_image = r_channel
+
+            # Combined RGB channels with defaults as fallbacks
+            r_combined = 0.5 * r_channel + 0.5 * self.sii_image
             g_combined = self.ha_to_oii_ratio * self.ha_image + (1 - self.ha_to_oii_ratio) * g_channel
             b_combined = b_channel
         else:
+            # If no OSC image, use Ha, OIII, and SII images directly
             r_combined = 0.5 * self.ha_image + 0.5 * (self.sii_image if self.sii_image is not None else self.ha_image)
             g_combined = self.ha_to_oii_ratio * self.ha_image + (1 - self.ha_to_oii_ratio) * self.oiii_image
             b_combined = self.oiii_image
 
+        # Stack the channels to create an RGB image
         combined_image = np.stack((r_combined, g_combined, b_combined), axis=-1)
 
+        # Apply star stretch if enabled
         if self.enable_star_stretch:
             combined_image = self.apply_star_stretch(combined_image)
 
+        # Apply SCNR (remove green cast)
         combined_image = self.apply_scnr(combined_image)
         self.preview_generated.emit(combined_image)
+
 
     def apply_star_stretch(self, image):
         stretched = ((3 ** self.stretch_factor) * image) / ((3 ** self.stretch_factor - 1) * image + 1)
@@ -923,9 +972,11 @@ class HaloBGonTab(QWidget):
         super().__init__()
         self.initUI()
         self.image = None  # Selected image
+        self.filename = None  # Store the selected file path
         self.preview_image = None  # Store the preview result
         self.zoom_factor = 0.25  # Initialize zoom factor for preview scaling
         self.dragging = False
+        self.is_mono = True
         self.last_pos = None
         self.processing_thread = None  # For background processing
         self.original_header = None
@@ -1046,7 +1097,8 @@ class HaloBGonTab(QWidget):
         if selected_file:
             try:
                 # Match the StarStretchTab loading method here
-                self.image, self.original_header, _, _ = load_image(selected_file)  # Load image with header
+                self.image, self.original_header, _, self.is_mono = load_image(selected_file)  # Load image with header
+                self.filename = selected_file 
                 self.fileLabel.setText(os.path.basename(selected_file))
                 self.generatePreview()  # Generate preview after loading
             except Exception as e:
@@ -1089,43 +1141,41 @@ class HaloBGonTab(QWidget):
         self.hideSpinner()
 
     def saveImage(self):
-        if self.image is not None and self.image.size > 0:
-            # Get the original file name and directory
-            base_name = os.path.basename(self.fileLabel.text())
+        if self.image is not None:
+            # Pre-populate the save dialog with the original image name
+            base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_reduced.tif'
+            original_dir = os.path.dirname(self.filename)
 
-            # Set the default directory and filename for the save dialog
-            original_dir = os.path.dirname(self.fileLabel.text())
+            # Open the save file dialog
             save_filename, _ = QFileDialog.getSaveFileName(
-                self,
-                'Save Reduced Image As',
-                os.path.join(original_dir, default_save_name),
-                'Images (*.png *.tif *.fits *.fit);;All Files (*)'
+                self, 
+                'Save Image As', 
+                os.path.join(original_dir, default_save_name), 
+                'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
             )
 
             if save_filename:
-                # Determine the format from the file extension
                 original_format = save_filename.split('.')[-1].lower()
 
+                # For TIFF and FITS files, prompt the user to select the bit depth
                 if original_format in ['tiff', 'tif', 'fits', 'fit']:
-                    # Provide bit depth options for TIFF/FITS formats
                     bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
                     bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
-
+                    
                     if ok and bit_depth:
-                        # Save the image with the selected bit depth and format
-                        self.save_image(self.image, save_filename, original_format, bit_depth, self.original_header)
+                        # Call save_image with the necessary parameters
+                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
-                    # For other formats, save directly without bit depth selection
-                    self.save_image(self.image, save_filename, original_format)
+                    # For non-TIFF/FITS formats, save directly without bit depth selection
+                    save_image(self.image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
-        else:
-            print("No image to save.")
+
 
 
     def showSpinner(self):
@@ -1178,15 +1228,6 @@ class HaloBGonTab(QWidget):
 
         return super().eventFilter(source, event)
 
-
-    def saveImage(self):
-        if self.image is not None:
-            save_filename, _ = QFileDialog.getSaveFileName(self, 'Save Image As', 'HaloBGon_result.tif', 'Images (*.tiff *.tif *.png *.fit *.fits)')
-            if save_filename:
-                save_image(self.image, save_filename, save_filename.split('.')[-1], bit_depth="16-bit", original_header=self.original_header)
-                print(f"Image saved as: {save_filename}")
-        else:
-            print("No image to save.")
 
     def create_lightness_mask(image):
         # Convert to grayscale to get the lightness mask
@@ -1327,9 +1368,12 @@ class ContinuumSubtractTab(QWidget):
         super().__init__()
         self.initUI()
         self.nb_image = None  # Changed from ha_image to nb_image
+        self.filename = None  # Store the selected file path
+        self.is_mono = True
         self.continuum_image = None  # Changed from red_continuum_image to continuum_image
         self.processing_thread = None  # For background processing
         self.combined_image = None  # Store the result of the continuum subtraction
+        self.zoom_factor = 0.25  # Initial zoom factor
 
     def initUI(self):
         main_layout = QHBoxLayout()
@@ -1344,7 +1388,7 @@ class ContinuumSubtractTab(QWidget):
         instruction_box.setText("""
             Instructions:
             1. Load your NB and Continuum images.
-            2. Select options for noise reduction and output.
+            2. Select for optional linear only output.
             3. Click Execute to perform continuum subtraction.
         """)
         instruction_box.setWordWrap(True)
@@ -1385,6 +1429,17 @@ class ContinuumSubtractTab(QWidget):
         self.execute_button = QPushButton("Execute")
         self.execute_button.clicked.connect(self.startContinuumSubtraction)
         left_layout.addWidget(self.execute_button)
+
+        # Zoom In and Zoom Out Buttons
+        zoom_layout = QHBoxLayout()
+        self.zoomInButton = QPushButton("Zoom In")
+        self.zoomInButton.clicked.connect(self.zoom_in)
+        zoom_layout.addWidget(self.zoomInButton)
+
+        self.zoomOutButton = QPushButton("Zoom Out")
+        self.zoomOutButton.clicked.connect(self.zoom_out)
+        zoom_layout.addWidget(self.zoomOutButton)
+        left_layout.addLayout(zoom_layout)
 
         # Save Button
         self.save_button = QPushButton("Save Continuum Subtracted Image")
@@ -1428,6 +1483,7 @@ class ContinuumSubtractTab(QWidget):
         if selected_file:
             try:
                 image, original_header, _, _ = load_image(selected_file)  # Load image with header
+                self.filename = selected_file
                 if image_type == "nb":
                     self.nb_image = image
                     self.nb_label.setText(os.path.basename(selected_file))  # Updated label
@@ -1457,6 +1513,17 @@ class ContinuumSubtractTab(QWidget):
     def update_status_label(self, message):
         self.statusLabel.setText(message)
 
+    def zoom_in(self):
+        self.zoom_factor *= 1.2
+        self.update_preview()
+
+    def zoom_out(self):
+        self.zoom_factor /= 1.2
+        self.update_preview()
+
+    def update_preview(self):
+        if self.combined_image is not None:
+            self.display_image(self.combined_image)        
 
     def load_image(self, filename):
         # Placeholder for actual image loading logic
@@ -1464,47 +1531,41 @@ class ContinuumSubtractTab(QWidget):
         return image, None, None, None
     
     def save_continuum_subtracted(self):
-        if self.combined_image is not None:
-            base_name = 'continuum_subtracted.tif'
+        if self.image is not None:
+            # Pre-populate the save dialog with the original image name
+            base_name = os.path.basename(self.filename)
+            default_save_name = os.path.splitext(base_name)[0] + '_continuumsubtracted.tif'
+            original_dir = os.path.dirname(self.filename)
+
+            # Open the save file dialog
             save_filename, _ = QFileDialog.getSaveFileName(
                 self, 
-                'Save Continuum Subtracted Image', 
-                base_name, 
+                'Save Image As', 
+                os.path.join(original_dir, default_save_name), 
                 'Images (*.tiff *.tif *.png *.fit *.fits);;All Files (*)'
             )
-            
+
             if save_filename:
                 original_format = save_filename.split('.')[-1].lower()
 
+                # For TIFF and FITS files, prompt the user to select the bit depth
                 if original_format in ['tiff', 'tif', 'fits', 'fit']:
-                    # Define bit depth options
                     bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
-                    bit_depth, ok = QInputDialog.getItem(
-                        self, 
-                        "Select Bit Depth", 
-                        "Choose bit depth for saving:", 
-                        bit_depth_options, 
-                        0, 
-                        False
-                    )
-
-                    if ok and bit_depth:
-                        # Use the save_image function to save with specified parameters
-                        save_image(self.combined_image, save_filename, original_format, bit_depth)
-                        self.statusLabel.setText(f"Image saved as: {save_filename}")
-                        print(f"Image saved as: {save_filename}")
-                    else:
-                        print("Save canceled.")
-                else:
-                    # Save the image without specific bit depth
-                    save_image(self.combined_image, save_filename, original_format)
-                    self.statusLabel.setText(f"Image saved as: {save_filename}")
-                    print(f"Image saved as: {save_filename}")
+                    bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
                     
+                    if ok and bit_depth:
+                        # Call save_image with the necessary parameters
+                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
+                        self.fileLabel.setText(f'Image saved as: {save_filename}')
+                    else:
+                        self.fileLabel.setText('Save canceled.')
+                else:
+                    # For non-TIFF/FITS formats, save directly without bit depth selection
+                    save_image(self.image, save_filename, original_format)
+                    self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
-                print("Save canceled.")
-        else:
-            print("No image to save.")
+                self.fileLabel.setText('Save canceled.')
+
 
 
     def display_image(self, processed_image):
@@ -1524,7 +1585,9 @@ class ContinuumSubtractTab(QWidget):
         q_image = QImage(preview_image.data, w, h, 3 * w, QImage.Format_RGB888)
 
         pixmap = QPixmap.fromImage(q_image)
-        self.imageLabel.setPixmap(pixmap.scaled(pixmap.size() * 0.25, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        scaled_pixmap = pixmap.scaled(pixmap.size() * self.zoom_factor, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.imageLabel.setPixmap(scaled_pixmap)
+        self.imageLabel.resize(scaled_pixmap.size())
 
 
     def showSpinner(self):
@@ -1727,11 +1790,11 @@ class ContinuumProcessingThread(QThread):
 
 
 
+# Function to load and convert images to 32-bit floating point
 def load_image(filename):
     bit_depth = None  # Initialize bit depth to None
-    is_mono = True  # Assume monochrome by default
+    is_mono = True  # Assume monochrome by default    
     original_header = None  # Initialize an empty header for FITS files
-
     if filename.lower().endswith('.png'):
         img = Image.open(filename).convert('RGB')  # Ensures it's RGB
         img_array = np.array(img, dtype=np.float32) / 255.0  # Normalize to [0, 1]
@@ -1752,6 +1815,7 @@ def load_image(filename):
         with fits.open(filename) as hdul:
             img_array = hdul[0].data
             original_header = hdul[0].header  # Capture the FITS header
+            bit_depth = None
 
             # Determine bit depth and apply necessary transformations
             if img_array.dtype == np.uint16:
@@ -1787,32 +1851,54 @@ def load_image(filename):
 
 
 
-def save_image(img_array, filename, original_format, bit_depth=None, original_header=None, is_mono=True):
+
+
+
+def save_image(img_array, filename, original_format, bit_depth=None, original_header=None, is_mono=False):
+    img_array = ensure_native_byte_order(img_array)  # Apply native byte order correction if needed
+
     if original_format == 'png':
-        img = Image.fromarray((img_array * 255).astype(np.uint8))
+        img = Image.fromarray((img_array * 255).astype(np.uint8))  # Convert to 8-bit and save as PNG
         img.save(filename)
     elif original_format in ['tiff', 'tif']:
         if bit_depth == "16-bit":
-            tiff.imwrite(filename, (img_array * 65535).astype(np.uint16))
+            tiff.imwrite(filename, (img_array * 65535).astype(np.uint16))  # Save as 16-bit TIFF
         elif bit_depth == "32-bit unsigned":
-            tiff.imwrite(filename, (img_array * 4294967295).astype(np.uint32))
+            tiff.imwrite(filename, (img_array * 4294967295).astype(np.uint32))  # Save as 32-bit unsigned TIFF
         elif bit_depth == "32-bit floating point":
-            tiff.imwrite(filename, img_array.astype(np.float32))
+            tiff.imwrite(filename, img_array.astype(np.float32))  # Save as 32-bit floating point TIFF
     elif original_format in ['fits', 'fit']:
-        if bit_depth == "16-bit":
-            hdu = fits.PrimaryHDU((img_array * 65535).astype(np.uint16), header=original_header)
-        elif bit_depth == "32-bit unsigned":
-            hdu = fits.PrimaryHDU((img_array * 4294967295).astype(np.uint32), header=original_header)
-        elif bit_depth == "32-bit floating point":
-            hdu = fits.PrimaryHDU(img_array.astype(np.float32), header=original_header)
+        # For grayscale (mono) FITS images
+        if is_mono:
+            if bit_depth == "16-bit":
+                img_array_fits = (img_array[:, :, 0] * 65535).astype(np.uint16)
+            elif bit_depth == "32-bit unsigned":
+                img_array_fits = (img_array[:, :, 0] * 4294967295).astype(np.uint32)
+            elif bit_depth == "32-bit floating point":
+                img_array_fits = img_array[:, :, 0].astype(np.float32)
+            hdu = fits.PrimaryHDU(img_array_fits, header=original_header)
+        else:
+            # Transpose RGB image to (channels, height, width) for FITS format
+            img_array_fits = np.transpose(img_array, (2, 0, 1))
+            if bit_depth == "16-bit":
+                img_array_fits = (img_array_fits * 65535).astype(np.uint16)
+            elif bit_depth == "32-bit unsigned":
+                img_array_fits = (img_array_fits * 4294967295).astype(np.uint32)
+            elif bit_depth == "32-bit floating point":
+                img_array_fits = img_array_fits.astype(np.float32)
 
-        # Ensure 3-channel images (RGB) are saved in a compatible format
-        if not is_mono and img_array.ndim == 3 and img_array.shape[-1] == 3:
-            img_array = np.transpose(img_array, (2, 0, 1))  # Reorder to (channels, height, width)
+            # Update the original header with correct dimensions for multi-channel images
+            original_header['NAXIS'] = 3
+            original_header['NAXIS1'] = img_array_fits.shape[2]  # Width
+            original_header['NAXIS2'] = img_array_fits.shape[1]  # Height
+            original_header['NAXIS3'] = img_array_fits.shape[0]  # Channels
+
+            hdu = fits.PrimaryHDU(img_array_fits, header=original_header)
 
         hdu.writeto(filename, overwrite=True)
     else:
         raise ValueError("Unsupported file format!")
+
 
 
 
@@ -1879,6 +1965,17 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+def ensure_native_byte_order(array):
+    """
+    Ensures that the array is in the native byte order.
+    If the array is in a non-native byte order, it will convert it.
+    """
+    if array.dtype.byteorder == '=':  # Already in native byte order
+        return array
+    elif array.dtype.byteorder in ('<', '>'):  # Non-native byte order
+        return array.byteswap().newbyteorder()
+    return array
 
 
 if __name__ == '__main__':
