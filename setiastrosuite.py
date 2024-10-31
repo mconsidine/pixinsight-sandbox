@@ -36,7 +36,7 @@ class AstroEditingSuite(QWidget):
 
         # Set the layout for the main window
         self.setLayout(layout)
-        self.setWindowTitle('Seti Astro\'s Editing Suite V1.0')
+        self.setWindowTitle('Seti Astro\'s Editing Suite V1.1')
 
 
 class StatisticalStretchTab(QWidget):
@@ -516,7 +516,8 @@ class StarStretchTab(QWidget):
         self.setLayout(main_layout)
 
     def saveImage(self):
-        if self.image is not None:
+        # Use the processed/stretched image for saving
+        if hasattr(self, 'stretched_image') and self.stretched_image is not None:
             # Pre-populate the save dialog with the original image name
             base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_stretched.tif'
@@ -540,16 +541,18 @@ class StarStretchTab(QWidget):
                     
                     if ok and bit_depth:
                         # Call save_image with the necessary parameters
-                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
+                        save_image(self.stretched_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
                     # For non-TIFF/FITS formats, save directly without bit depth selection
-                    save_image(self.image, save_filename, original_format)
+                    save_image(self.stretched_image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
+        else:
+            self.fileLabel.setText('No stretched image to save. Please generate a preview first.')
 
 
     def selectImage(self):
@@ -584,6 +587,9 @@ class StarStretchTab(QWidget):
             self.processing_thread.start()
 
     def updatePreview(self, stretched_image):
+        # Store the stretched image for saving
+        self.stretched_image = stretched_image
+
         # Update the preview once the processing thread emits the result
         preview_image = (stretched_image * 255).astype(np.uint8)
         h, w = preview_image.shape[:2]
@@ -974,12 +980,14 @@ class HaloBGonTab(QWidget):
         self.image = None  # Selected image
         self.filename = None  # Store the selected file path
         self.preview_image = None  # Store the preview result
+        self.processed_image = None
         self.zoom_factor = 0.25  # Initialize zoom factor for preview scaling
         self.dragging = False
         self.is_mono = True
         self.last_pos = None
         self.processing_thread = None  # For background processing
         self.original_header = None
+        
 
     def initUI(self):
         main_layout = QHBoxLayout()
@@ -1124,6 +1132,9 @@ class HaloBGonTab(QWidget):
         self.processing_thread.start()
 
     def updatePreview(self, processed_image):
+        # Store the processed image for saving
+        self.processed_image = processed_image
+
         # Update the preview once the processing thread emits the result
         preview_image = (processed_image * 255).astype(np.uint8)
         h, w = preview_image.shape[:2]
@@ -1141,7 +1152,7 @@ class HaloBGonTab(QWidget):
         self.hideSpinner()
 
     def saveImage(self):
-        if self.image is not None:
+        if self.processed_image is not None:
             # Pre-populate the save dialog with the original image name
             base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_reduced.tif'
@@ -1159,20 +1170,21 @@ class HaloBGonTab(QWidget):
                 original_format = save_filename.split('.')[-1].lower()
 
                 # For TIFF and FITS files, prompt the user to select the bit depth
-                if original_format in ['tiff', 'tif', 'fits', 'fit']:
-                    bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
-                    bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
-                    
-                    if ok and bit_depth:
-                        # Call save_image with the necessary parameters
-                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
-                        self.fileLabel.setText(f'Image saved as: {save_filename}')
+                bit_depth_options = ["16-bit", "32-bit unsigned", "32-bit floating point"]
+                bit_depth, ok = QInputDialog.getItem(self, "Select Bit Depth", "Choose bit depth for saving:", bit_depth_options, 0, False)
+                
+                if ok and bit_depth:
+                    # If linear data is checked, revert to linear before saving
+                    if self.linearDataCheckbox.isChecked():
+                        saved_image = np.clip(self.processed_image ** 5, 0, 1)  # Revert to linear state
                     else:
-                        self.fileLabel.setText('Save canceled.')
-                else:
-                    # For non-TIFF/FITS formats, save directly without bit depth selection
-                    save_image(self.image, save_filename, original_format)
+                        saved_image = self.processed_image  # Save as is (non-linear)
+
+                    # Call save_image with the necessary parameters
+                    save_image(saved_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
+                else:
+                    self.fileLabel.setText('Save canceled.')
             else:
                 self.fileLabel.setText('Save canceled.')
 
@@ -1198,7 +1210,8 @@ class HaloBGonTab(QWidget):
             self.processing_thread.start()
 
     def updatePreview(self, processed_image):
-        # Update the preview once the processing thread emits the result
+        # Update the preview with the processed (non-linear if is_linear is checked) image
+        self.processed_image = processed_image  # Save for use in saving
         preview_image = (processed_image * 255).astype(np.uint8)
         h, w = preview_image.shape[:2]
         if preview_image.ndim == 3:
@@ -1298,32 +1311,28 @@ class HaloProcessingThread(QThread):
         self.reduction_amount = reduction_amount
         self.is_linear = is_linear
 
+
     def run(self):
         processed_image = self.applyHaloReduction(self.image, self.reduction_amount, self.is_linear)
         self.preview_generated.emit(processed_image)
 
     def applyHaloReduction(self, image, reduction_amount, is_linear):
+        image = np.clip(image, 0, 1)
         if is_linear:
-            image = image ** (1 / 2.2)  # Gamma correction for linear data
+            image = image ** (1 / 5)  # Convert linear to non-linear (approx gamma correction)
 
-        # Generate the lightness mask
+        # Apply halo reduction logic
         lightness_mask = self.createLightnessMask(image)
-        inverted_mask = 1.0 - lightness_mask  # Invert the lightness mask
-
-        # Duplicate and process the mask for halo reduction effect
-        duplicated_mask = self.createDuplicateMask(lightness_mask)
-
-        # Subtract duplicated mask from inverted mask to enhance halos
-        enhanced_mask = inverted_mask - duplicated_mask * reduction_amount * 0.33  # Adjust factor based on reduction_amount
-
-        # Apply the mask and curves transformation to the image
-        masked_image = self.applyMaskToImage(image, enhanced_mask)
+        inverted_mask = 1.0 - lightness_mask
+        duplicated_mask = cv2.GaussianBlur(lightness_mask, (0, 0), sigmaX=2)
+        enhanced_mask = inverted_mask - duplicated_mask * reduction_amount * 0.33
+        masked_image = cv2.multiply(image, np.stack([enhanced_mask] * 3, axis=-1))
         final_image = self.applyCurvesToImage(masked_image, reduction_amount)
 
-        if is_linear:
-            final_image = final_image ** 2.2  # Restore gamma
+        #if is_linear:
+        #    final_image = final_image ** 5  # Convert back to linear
 
-        return np.clip(final_image, 0, 1)  # Ensure image stays within valid range
+        return np.clip(final_image, 0, 1)
 
     def createLightnessMask(self, image):
         # Convert image to grayscale to create a lightness mask
