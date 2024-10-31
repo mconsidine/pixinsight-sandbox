@@ -1374,6 +1374,7 @@ class ContinuumSubtractTab(QWidget):
         self.processing_thread = None  # For background processing
         self.combined_image = None  # Store the result of the continuum subtraction
         self.zoom_factor = 0.25  # Initial zoom factor
+        self.original_header = None
 
     def initUI(self):
         main_layout = QHBoxLayout()
@@ -1555,16 +1556,16 @@ class ContinuumSubtractTab(QWidget):
                     
                     if ok and bit_depth:
                         # Call save_image with the necessary parameters
-                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
-                        self.fileLabel.setText(f'Image saved as: {save_filename}')
+                        save_image(self.combined_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
+                        self.statusLabel.setText(f'Image saved as: {save_filename}')
                     else:
-                        self.fileLabel.setText('Save canceled.')
+                        self.statusLabel.setText('Save canceled.')
                 else:
                     # For non-TIFF/FITS formats, save directly without bit depth selection
                     save_image(self.image, save_filename, original_format)
-                    self.fileLabel.setText(f'Image saved as: {save_filename}')
+                    self.statusLabel.setText(f'Image saved as: {save_filename}')
             else:
-                self.fileLabel.setText('Save canceled.')
+                self.statusLabel.setText('Save canceled.')
 
 
 
