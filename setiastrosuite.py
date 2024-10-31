@@ -36,7 +36,7 @@ class AstroEditingSuite(QWidget):
 
         # Set the layout for the main window
         self.setLayout(layout)
-        self.setWindowTitle('Seti Astro\'s Editing Suite V1.1')
+        self.setWindowTitle('Seti Astro\'s Editing Suite V1.2')
 
 
 class StatisticalStretchTab(QWidget):
@@ -276,7 +276,7 @@ class StatisticalStretchTab(QWidget):
 
 
     def saveImage(self):
-        if self.image is not None:
+        if hasattr(self, 'stretched_image') and self.stretched_image is not None:
             # Pre-populate the save dialog with the original image name
             base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_stretched.tif'
@@ -300,16 +300,19 @@ class StatisticalStretchTab(QWidget):
                     
                     if ok and bit_depth:
                         # Call save_image with the necessary parameters
-                        save_image(self.image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
+                        save_image(self.stretched_image, save_filename, original_format, bit_depth, self.original_header, self.is_mono)
                         self.fileLabel.setText(f'Image saved as: {save_filename}')
                     else:
                         self.fileLabel.setText('Save canceled.')
                 else:
                     # For non-TIFF/FITS formats, save directly without bit depth selection
-                    save_image(self.image, save_filename, original_format)
+                    save_image(self.stretched_image, save_filename, original_format)
                     self.fileLabel.setText(f'Image saved as: {save_filename}')
             else:
                 self.fileLabel.setText('Save canceled.')
+        else:
+            self.fileLabel.setText('No stretched image to save. Please generate a preview first.')
+
 
 
 # Thread for Stat Stretch background processing
