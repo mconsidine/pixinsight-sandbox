@@ -1531,7 +1531,7 @@ class ContinuumSubtractTab(QWidget):
         return image, None, None, None
     
     def save_continuum_subtracted(self):
-        if self.image is not None:
+        if self.combined_image is not None:
             # Pre-populate the save dialog with the original image name
             base_name = os.path.basename(self.filename)
             default_save_name = os.path.splitext(base_name)[0] + '_continuumsubtracted.tif'
